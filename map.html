@@ -1,0 +1,1042 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <title>Living City Domes · Interactive Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    /* Uygulama: tek sütun, tam ekran */
+    #app {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+
+    /* Panel DOM’da duruyor ama tamamen gizli */
+    #panel{
+      display: none;
+      padding:16px;
+      border-right:1px solid rgba(0,0,0,0.10);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      color:#111;
+      background:#fff;
+      box-sizing:border-box;
+    }
+
+    #brand{ display:flex; gap:10px; align-items:center; margin-bottom:16px; }
+    #logo{
+      width:40px; height:40px; border-radius:10px;
+      background:rgba(0,0,0,0.06);
+      border:1px solid rgba(0,0,0,0.12);
+      display:grid; place-items:center; font-weight:800;
+    }
+
+    .box{
+      margin-top:14px; padding:12px; border-radius:12px;
+      background:rgba(0,0,0,0.03);
+      border:1px solid rgba(0,0,0,0.08);
+      font-size:12px;
+    }
+
+    input, button{
+      width:100%; padding:10px; border-radius:10px;
+      border:1px solid rgba(0,0,0,0.12);
+      background:#fff; color:#111; box-sizing:border-box;
+    }
+
+    button{ margin-top:10px; background:rgba(0,0,0,0.05); cursor:pointer; }
+    button:hover{ background:rgba(0,0,0,0.10); }
+
+    .row{ display:flex; gap:10px; align-items:center; margin:8px 0; }
+    .row input[type="checkbox"]{ width:auto; transform: translateY(1px); }
+
+    /* Sigma container: tam ekran */
+    #container{
+      position:relative;
+      width:100%;
+      height:100%;
+      overflow:hidden;
+    }
+
+    #container canvas{
+      position:absolute;
+      inset:0;
+      z-index:1;
+    }
+
+    #overlay{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      z-index:5;
+      pointer-events:none;
+    }
+
+    #legend{
+      position:absolute;
+      top:14px;
+      right:14px;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(0,0,0,0.10);
+      background:rgba(255,255,255,0.92);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      font-size:12px;
+      color:#111;
+      pointer-events:none;
+      z-index:6;
+    }
+
+    canvas{ outline:none; }
+
+    @keyframes pulseHalo {
+      0%   { transform: scale(0.96); opacity: 0.55; }
+      50%  { transform: scale(1.08); opacity: 0.95; }
+      100% { transform: scale(0.96); opacity: 0.55; }
+    }
+    .pulse-halo {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: pulseHalo 2.6s ease-in-out infinite;
+    }
+
+    /* Core → HUMAN okları için animasyon */
+    @keyframes flowArrow {
+      from { stroke-dashoffset: 22; }
+      to   { stroke-dashoffset:   0; }
+    }
+
+    .arrow-line {
+  stroke: rgba(0,0,0,0.16);
+  stroke-width: 0.8;
+  stroke-linecap: round;
+  stroke-dasharray: 2 8;  /* ince, kesik kesik çizgi */
+}
+
+.arrow-active {
+  stroke: rgba(0,0,0,0.55);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 3 7;
+  animation: flowArrow 0.85s linear infinite;
+}
+
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+</head>
+
+<body>
+<div id="app">
+
+  <!-- Gizli panel (JS için bırakıldı) -->
+  <div id="panel">
+    <div id="brand">
+      <div id="logo">LC</div>
+      <div>
+        <div><b>Living City Domes</b></div>
+        <div style="font-size:11px; opacity:.7;">Interactive System Mapping</div>
+      </div>
+    </div>
+
+    <div class="box">
+      <input id="search" placeholder="Search node" />
+      <button id="reset">Reset view</button>
+      <button id="layout">Re-layout</button>
+      <button id="export">Export PNG</button>
+    </div>
+
+    <div class="box">
+      <div style="font-weight:700; margin-bottom:8px;">Filters</div>
+
+      <label class="row"><input id="f_energy" type="checkbox" checked /> Energy</label>
+      <label class="row"><input id="f_mobility" type="checkbox" checked /> Mobility</label>
+      <label class="row"><input id="f_security" type="checkbox" checked /> Security</label>
+      <label class="row"><input id="f_data" type="checkbox" checked /> Data Governance</label>
+      <label class="row"><input id="f_ecology" type="checkbox" checked /> Ecology</label>
+
+      <hr style="border:none; border-top:1px solid rgba(0,0,0,0.08); margin:10px 0;" />
+
+      <label class="row"><input id="f_core_only" type="checkbox" /> Only core connections</label>
+      <label class="row"><input id="f_fade" type="checkbox" checked /> Fade non-selected</label>
+    </div>
+
+    <div class="box" id="info">Click a node</div>
+
+    <div class="box" style="opacity:.85; line-height:1.5;">
+      Wheel zoom.<br />
+      Drag background pan.<br />
+      Drag node move.
+    </div>
+  </div>
+
+  <div id="container">
+    <svg id="overlay"></svg>
+    <div id="legend">
+      <div style="font-weight:800;">Legend</div>
+      <div style="margin-top:6px;">Core nodes: icons</div>
+      <div>Edges: light</div>
+      <div>Feedback: stronger</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+async function main() {
+  const res = await fetch("./graph.json");
+  if (!res.ok) throw new Error("graph.json okunamadı: " + res.status);
+  const data = await res.json();
+
+  const graph = new graphology.Graph({ multi: true });
+
+  const overlay = document.getElementById("overlay");
+  const info = document.getElementById("info");
+
+  const state = {
+    selected: null,
+    hovering: null,
+    dragging: false,
+    draggedNode: null,
+    filters: {
+      energy: true, mobility: true, security: true, data: true, ecology: true,
+      coreOnly: false,
+      fade: true
+    }
+  };
+
+  const pinnedNodes = new Set();
+
+  function isCore(id) { return String(id).startsWith("core_"); }
+
+  function categoryOfNodeId(id) {
+    const s = String(id);
+    if (s.startsWith("core_energy") || s.startsWith("en_")) return "energy";
+    if (s.startsWith("core_mobility") || s.startsWith("mo_")) return "mobility";
+    if (s.startsWith("core_security") || s.startsWith("se_")) return "security";
+    if (s.startsWith("core_data") || s.startsWith("da_") || s.startsWith("hu_")) return "data";
+    if (s.startsWith("core_ecology") || s.startsWith("ec_")) return "ecology";
+    return null;
+  }
+
+  function coreOfNodeId(id) {
+    const s = String(id);
+    if (s.startsWith("en_")) return "core_energy";
+    if (s.startsWith("mo_")) return "core_mobility";
+    if (s.startsWith("se_")) return "core_security";
+    if (s.startsWith("da_")) return "core_data";
+    if (s.startsWith("ec_")) return "core_ecology";
+    if (s.startsWith("hu_")) return "core_data";
+    if (s.startsWith("core_")) return s;
+    return null;
+  }
+
+  function stable01(s) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return (h % 100000) / 100000;
+  }
+
+  function neighborsOf(id) {
+    const s = new Set(graph.neighbors(id));
+    s.add(id);
+    return s;
+  }
+
+  function setInfo(id) {
+    if (!id) { info.textContent = "Click a node"; return; }
+    info.textContent = graph.getNodeAttribute(id, "label") + " · connections: " + graph.degree(id);
+  }
+
+  // ICON DICTIONARY (aynen seninkinin devamı)
+  const ICON_PATHS = {
+    energy:   ['M13 2L3 14h7l-1 8 10-12h-7l1-8z'],
+    mobility: [
+      'M7 17a2 2 0 1 0 0 4a2 2 0 0 0 0-4z',
+      'M17 17a2 2 0 1 0 0 4a2 2 0 0 0 0-4z',
+      'M5 16l1-9h10l2 6h2v3h-2.2a3.5 3.5 0 0 0-6.6 0H10a3.5 3.5 0 0 0-6.6 0H2v-3h3z'
+    ],
+    security: ['M12 2l8 4v6c0 5-3.4 9.7-8 10-4.6-.3-8-5-8-10V6l8-4z'],
+    data: [
+      'M12 2c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3z',
+      'M4 7v4c0 1.7 3.6 3 8 3s8-1.3 8-3V7c-1.7 1.7-5.1 2.5-8 2.5S5.7 8.7 4 7z',
+      'M4 13v4c0 1.7 3.6 3 8 3s8-1.3 8-3v-4c-1.7 1.7-5.1 2.5-8 2.5S5.7 14.7 4 13z'
+    ],
+    ecology: ['M12 2c5 3 8 7 8 12 0 4-3 8-8 8s-8-4-8-8c0-5 3-9 8-12z'],
+    human: [
+      'M12 12a4 4 0 1 0 0-8a4 4 0 0 0 0 8z',
+      'M4 22c0-4.4 3.6-8 8-8s8 3.6 8 8H4z'
+    ],
+    solar: [
+      'M12 2v3','M12 19v3','M4.22 4.22l2.12 2.12','M17.66 17.66l2.12 2.12',
+      'M2 12h3','M19 12h3','M4.22 19.78l2.12-2.12','M17.66 6.34l2.12-2.12',
+      'M12 7a5 5 0 1 0 0 10a5 5 0 0 0 0-10z'
+    ],
+    wind: [
+      'M3 12h10a3 3 0 1 0-3-3',
+      'M3 16h14a2.5 2.5 0 1 1-2.5-2.5'
+    ],
+    battery: [
+      'M7 6h10v12H7z',
+      'M17 10h2v4h-2z',
+      'M9 10h6v4H9z'
+    ],
+    grid: [
+      'M4 4h16v16H4z',
+      'M12 4v16',
+      'M4 12h16'
+    ],
+    monitor: [
+      'M4 5h16v11H4z',
+      'M9 20h6v-2H9z',
+      'M8 18h8v-2H8z'
+    ],
+    ai: [
+      'M9 8h6v8H9z',
+      'M7 10H5v4h2z',
+      'M19 10h-2v4h2z',
+      'M10 6V4h4v2z',
+      'M10 20v-2h4v2z'
+    ],
+    tram: [
+      'M7 4h10v10a3 3 0 0 1-3 3H10a3 3 0 0 1-3-3V4z',
+      'M9 20h6',
+      'M8 7h8'
+    ],
+    pedestrian: [
+      'M12 5a2 2 0 1 0 0 4a2 2 0 0 0 0-4z',
+      'M11 22l1-5-2-3 2-2 2 2 2 1-2 2 1 5h-2l-1-4-1 4z'
+    ],
+    scooter: [
+      'M6 18a2 2 0 1 0 0 4a2 2 0 0 0 0-4z',
+      'M18 18a2 2 0 1 0 0 4a2 2 0 0 0 0-4z',
+      'M6 20h8l2-10h-4l-1 6H6z',
+      'M14 10h4'
+    ],
+    logistics: [
+      'M3 7h11v10H3z',
+      'M14 10h4l3 3v4h-7z',
+      'M7 19a2 2 0 1 0 0 4a2 2 0 0 0 0-4z',
+      'M18 19a2 2 0 1 0 0 4a2 2 0 0 0 0-4z'
+    ],
+    sensor: [
+      'M12 10a2 2 0 1 0 0 4a2 2 0 0 0 0-4z',
+      'M4 12a8 8 0 0 1 16 0',
+      'M2 12a10 10 0 0 1 20 0'
+    ],
+    camera: [
+      'M4 8h4l2-2h4l2 2h4v10H4z',
+      'M12 11a3 3 0 1 0 0 6a3 3 0 0 0 0-6z'
+    ],
+    lock: [
+      'M7 11V8a5 5 0 0 1 10 0v3',
+      'M6 11h12v11H6z'
+    ],
+    face: [
+      'M12 2a10 10 0 1 0 0 20a10 10 0 0 0 0-20z',
+      'M8 10a1.2 1.2 0 1 0 0 2.4A1.2 1.2 0 0 0 8 10z',
+      'M16 10a1.2 1.2 0 1 0 0 2.4A1.2 1.2 0 0 0 16 10z',
+      'M8.5 15c1 1.2 2.2 1.8 3.5 1.8S14.5 16.2 15.5 15'
+    ],
+    behavior: [
+      'M12 3c4 0 7 2.6 7 6 0 2.1-1.1 3.9-2.9 5l.6 3-3.1-1.6c-.5.1-1 .1-1.6 .1-4 0-7-2.6-7-6s3-6 7-6z',
+      'M7 21c.7-2 2.6-3.5 5-3.5s4.3 1.5 5 3.5H7z'
+    ],
+    risk: [
+      'M12 2l10 18H2L12 2z',
+      'M11 8h2v6h-2z',
+      'M11 16h2v2h-2z'
+    ],
+    database: [
+      'M12 2c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3z',
+      'M4 7v4c0 1.7 3.6 3 8 3s8-1.3 8-3V7c-1.7 1.7-5.1 2.5-8 2.5S5.7 8.7 4 7z',
+      'M4 13v4c0 1.7 3.6 3 8 3s8-1.3 8-3v-4c-1.7 1.7-5.1 2.5-8 2.5S5.7 14.7 4 13z'
+    ],
+    policy: [
+      'M7 2h8l4 4v16H7z',
+      'M15 2v6h6',
+      'M9 11h8',
+      'M9 15h8',
+      'M9 19h6'
+    ],
+    feedback: [
+      'M7 7h10v4l3-3-3-3v2H7z',
+      'M17 17H7v-4l-3 3 3 3v-2h10z'
+    ],
+    water: [
+      'M12 2s7 7 7 12a7 7 0 0 1-14 0c0-5 7-12 7-12z'
+    ],
+    leaf: [
+      'M20 4C12 4 6 9 4 20c11 2 16-8 16-16z',
+      'M6 18c4-6 8-8 12-10'
+    ],
+    farm: [
+      'M12 4l8 6v10H4V10l8-6z',
+      'M9 20v-6h6v6z'
+    ],
+    climate: [
+      'M14 14.5a3 3 0 1 1-4 0V5a2 2 0 0 1 4 0v9.5z',
+      'M10 18h4'
+    ]
+  };
+
+  function drawIconPath(vx, vy, key, sizePx, opacity = 0.95, fill = "#000000") {
+    const paths = ICON_PATHS[key];
+    if (!paths) return;
+
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    const s = sizePx / 24;
+    const tx = vx - (24 * s) / 2;
+    const ty = vy - (24 * s) / 2;
+
+    g.setAttribute("transform", `translate(${tx} ${ty}) scale(${s})`);
+    g.setAttribute("opacity", String(opacity));
+
+    const STROKE_ICONS = new Set(["solar","wind","grid","sensor","feedback","leaf","climate","policy"]);
+
+    for (const d of paths) {
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("d", d);
+
+      if (STROKE_ICONS.has(key)) {
+        p.setAttribute("fill", "none");
+        p.setAttribute("stroke", fill);
+        p.setAttribute("stroke-width", "2");
+        p.setAttribute("stroke-linecap", "round");
+        p.setAttribute("stroke-linejoin", "round");
+      } else {
+        p.setAttribute("fill", fill);
+      }
+
+      g.appendChild(p);
+    }
+
+    overlay.appendChild(g);
+  }
+
+  data.nodes.forEach(n => {
+    const id = n.id;
+    const core = isCore(id);
+    graph.addNode(id, {
+      label: n.label,
+      icon: n.icon || null,
+      size: core ? (n.size || 30) : (n.size || 10),
+      color: n.color || (core ? "#000" : "rgba(0,0,0,0.55)"),
+      x: (Math.random() - 0.5) * 10,
+      y: (Math.random() - 0.5) * 10
+    });
+  });
+
+  data.edges.forEach(e => {
+    const label = e.label || "";
+    const feedbackEdge = String(label).toLowerCase().includes("feedback");
+    const s = e.source;
+    const t = e.target;
+    const coreCore = isCore(s) && isCore(t);
+
+    graph.addEdgeWithKey(e.id, s, t, {
+      label,
+      feedback: feedbackEdge,
+      coreCore,
+      size: coreCore ? 1.8 : (feedbackEdge ? 1.6 : 1.0),
+      color: coreCore ? "rgba(0,0,0,0.26)" : (feedbackEdge ? "rgba(0,0,0,0.20)" : "rgba(0,0,0,0.12)")
+    });
+  });
+
+  const renderer = new Sigma(graph, document.getElementById("container"), {
+    renderEdgeLabels: false,
+    labelDensity: 1.0,
+    labelGridCellSize: 60,
+    labelRenderedSizeThreshold: 0,
+    webglContextAttributes: { preserveDrawingBuffer: true }
+  });
+
+  let rafPending = false;
+  function refresh() {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      renderer.refresh();
+      redrawOverlay();
+    });
+  }
+
+  renderer.setSetting("nodeReducer", (node, attr) => {
+    const res = { ...attr };
+
+    if (String(node).startsWith("core_")) {
+      res.size = 0;
+      res.label = "";
+    }
+
+    const cat = categoryOfNodeId(node);
+    if (cat && !state.filters[cat]) {
+      res.hidden = true;
+      return res;
+    }
+
+    if (!state.selected && state.hovering) {
+      const n = neighborsOf(state.hovering);
+      if (!n.has(node)) {
+        res.color = "rgba(0,0,0,0.10)";
+        res.size = Math.max(2, (attr.size || 6) * 0.55);
+      } else if (node === state.hovering) {
+        res.size = (attr.size || 6) * 1.25;
+      }
+    }
+
+    if (state.selected) {
+      const n = neighborsOf(state.selected);
+      if (!n.has(node)) {
+        res.color = "rgba(0,0,0,0.16)";
+        res.size = Math.max(2, (attr.size || 6) * 0.58);
+      }
+      if (node === state.selected) res.size = (attr.size || 6) * 1.28;
+    }
+
+    return res;
+  });
+
+  renderer.setSetting("edgeReducer", (edge, attr) => {
+    const res = { ...attr };
+    const s = graph.source(edge);
+    const t = graph.target(edge);
+
+    const sCat = categoryOfNodeId(s);
+    const tCat = categoryOfNodeId(t);
+    if ((sCat && !state.filters[sCat]) || (tCat && !state.filters[tCat])) {
+      res.hidden = true;
+      return res;
+    }
+
+    if (state.filters.coreOnly && !(isCore(s) && isCore(t))) {
+      res.hidden = true;
+      return res;
+    }
+
+    if (!state.selected && state.hovering && state.filters.fade) {
+      const n = neighborsOf(state.hovering);
+      const v = n.has(s) && n.has(t);
+      res.hidden = !v;
+      res.color = v ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.04)";
+      res.size = v ? (attr.coreCore ? 2.2 : (attr.feedback ? 1.9 : 1.2)) : 0.6;
+      return res;
+    }
+
+    if (state.selected && state.filters.fade) {
+      const n = neighborsOf(state.selected);
+      const v = n.has(s) && n.has(t);
+      res.hidden = !v;
+      res.color = v ? (attr.feedback ? "rgba(0,0,0,0.34)" : "rgba(0,0,0,0.22)") : "rgba(0,0,0,0.04)";
+      res.size = v ? (attr.coreCore ? 2.2 : (attr.feedback ? 1.8 : 1.1)) : 0.6;
+      return res;
+    }
+
+    res.color = attr.color || "rgba(0,0,0,0.12)";
+    res.size = attr.size || 1.0;
+    return res;
+  });
+
+  const mouse = renderer.getMouseCaptor();
+  let lastHover = null;
+  let clickLock = false;
+
+  renderer.on("clickNode", ({ node }) => {
+    clickLock = true;
+    state.selected = (state.selected === node) ? null : node;
+    setInfo(state.selected);
+    refresh();
+    setTimeout(() => { clickLock = false; }, 0);
+  });
+
+  renderer.on("clickStage", () => {
+    if (clickLock) return;
+    state.selected = null;
+    setInfo(null);
+    refresh();
+  });
+
+  mouse.on("mousemove", (e) => {
+    if (state.dragging) return;
+    const node = renderer.getNodeAtPosition({ x: e.x, y: e.y }) || null;
+    if (node === lastHover) return;
+    lastHover = node;
+    state.hovering = node;
+    if (!state.selected) setInfo(node);
+    if (!state.selected) refresh();
+  });
+
+  mouse.on("mousedown", (e) => {
+    const n = renderer.getNodeAtPosition({ x: e.x, y: e.y });
+    if (!n) return;
+    if (isCore(n)) return;
+
+    state.dragging = true;
+    state.draggedNode = n;
+    renderer.getCamera().disable();
+
+    e.preventSigmaDefault = true;
+    e.original.preventDefault();
+    e.original.stopPropagation();
+  });
+
+  mouse.on("mousemove", (e) => {
+    if (!state.dragging || !state.draggedNode) return;
+    const p = renderer.viewportToGraph({ x: e.x, y: e.y });
+    graph.setNodeAttribute(state.draggedNode, "x", p.x);
+    graph.setNodeAttribute(state.draggedNode, "y", p.y);
+
+    e.preventSigmaDefault = true;
+    e.original.preventDefault();
+    e.original.stopPropagation();
+    refresh();
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!state.dragging || !state.draggedNode) return;
+
+    const id = state.draggedNode;
+    const x = graph.getNodeAttribute(id, "x");
+    const y = graph.getNodeAttribute(id, "y");
+
+    pinnedNodes.add(id);
+    basePos.set(id, { x, y });
+
+    state.dragging = false;
+    state.draggedNode = null;
+    renderer.getCamera().enable();
+    refresh();
+  }, { passive: true });
+
+  document.getElementById("search").addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    if (!q) {
+      state.selected = null;
+      setInfo(null);
+      refresh();
+      return;
+    }
+    let found = null;
+    graph.forEachNode((n, a) => {
+      if (!found && String(a.label || "").toLowerCase().includes(q)) found = n;
+    });
+    if (found) {
+      state.selected = found;
+      setInfo(found);
+      const a = graph.getNodeAttributes(found);
+      renderer.getCamera().animate({ x: a.x, y: a.y, ratio: 0.85 }, { duration: 380 });
+      refresh();
+    }
+  });
+
+  document.getElementById("reset").onclick = () => {
+    state.selected = null;
+    document.getElementById("search").value = "";
+    setInfo(null);
+    renderer.getCamera().animate({ x: 0, y: 0, ratio: 1 }, { duration: 320 });
+    refresh();
+  };
+
+  function bindFilters() {
+    const map = [
+      ["f_energy", "energy"],
+      ["f_mobility", "mobility"],
+      ["f_security", "security"],
+      ["f_data", "data"],
+      ["f_ecology", "ecology"]
+    ];
+    map.forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      el.addEventListener("change", () => { state.filters[key] = !!el.checked; refresh(); });
+    });
+
+    const c = document.getElementById("f_core_only");
+    c.addEventListener("change", () => { state.filters.coreOnly = !!c.checked; refresh(); });
+
+    const f = document.getElementById("f_fade");
+    f.addEventListener("change", () => { state.filters.fade = !!f.checked; refresh(); });
+  }
+  bindFilters();
+
+  const CORES = [
+    { id: "core_security", label: "SECURITY" },
+    { id: "core_mobility", label: "MOBILITY" },
+    { id: "core_energy", label: "ENERGY" },
+    { id: "core_data", label: "DATA" },
+    { id: "core_ecology", label: "ECOLOGY" }
+  ].filter(c => graph.hasNode(c.id));
+
+  const SYSTEM_R = 10.8;
+  const CORE_RING_R = 7.3;
+
+  function applyLayoutA() {
+    const n = CORES.length || 5;
+
+    CORES.forEach((c, i) => {
+      const ang = (i / n) * Math.PI * 2 - Math.PI / 2;
+      const x = Math.cos(ang) * CORE_RING_R;
+      const y = Math.sin(ang) * CORE_RING_R;
+      graph.setNodeAttribute(c.id, "x", x);
+      graph.setNodeAttribute(c.id, "y", y);
+    });
+
+    graph.forEachNode((id) => {
+      if (isCore(id)) return;
+
+      const coreId = coreOfNodeId(id);
+      if (!coreId || !graph.hasNode(coreId)) return;
+
+      const cx = graph.getNodeAttribute(coreId, "x");
+      const cy = graph.getNodeAttribute(coreId, "y");
+
+      const u = stable01(String(id) + "_u");
+      const v = stable01(String(id) + "_v");
+
+      const t = 0.30 + u * 0.62;
+      const px = cx * t;
+      const py = cy * t;
+
+      const len = Math.hypot(cx, cy) || 1;
+      const nx = -cy / len;
+      const ny = cx / len;
+
+      const spread = 0.55 + v * 1.05;
+      const side = (stable01(String(id) + "_s") < 0.5) ? -1 : 1;
+
+      let x = px + nx * spread * side;
+      let y = py + ny * spread * side;
+
+      const rr = Math.hypot(x, y);
+      if (rr > SYSTEM_R * 0.92) {
+        const k = (SYSTEM_R * 0.92) / rr;
+        x *= k;
+        y *= k;
+      }
+
+      graph.setNodeAttribute(id, "x", x);
+      graph.setNodeAttribute(id, "y", y);
+    });
+
+    renderer.getCamera().animate({ x: 0, y: 0, ratio: 1 }, { duration: 320 });
+    refresh();
+  }
+
+  document.getElementById("layout").onclick = () => {
+    applyLayoutA();
+    setTimeout(() => snapshotBasePositions(), 80);
+  };
+
+  function svgEl(tag) { return document.createElementNS("http://www.w3.org/2000/svg", tag); }
+
+  function graphRadiusToPx(centerGraph, rGraph) {
+    const p0 = renderer.graphToViewport(centerGraph);
+    const p1 = renderer.graphToViewport({ x: centerGraph.x + rGraph, y: centerGraph.y });
+    return Math.abs(p1.x - p0.x);
+  }
+
+  function clearOverlay() { overlay.innerHTML = ""; }
+
+  function drawCircle(cx, cy, r, stroke, strokeWidth, fill) {
+    const c = svgEl("circle");
+    c.setAttribute("cx", String(cx));
+    c.setAttribute("cy", String(cy));
+    c.setAttribute("r", String(r));
+    c.setAttribute("fill", fill);
+    c.setAttribute("stroke", stroke);
+    c.setAttribute("stroke-width", String(strokeWidth));
+    overlay.appendChild(c);
+  }
+
+  function drawText(x, y, text, size, opacity, anchor="start") {
+    const t = svgEl("text");
+    t.setAttribute("x", String(x));
+    t.setAttribute("y", String(y));
+    t.setAttribute("fill", `rgba(0,0,0,${opacity})`);
+    t.setAttribute("font-size", String(size));
+    t.setAttribute("font-family", "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif");
+    t.setAttribute("font-weight", "700");
+    t.setAttribute("letter-spacing", "0.04em");
+    t.setAttribute("text-anchor", anchor);
+    t.textContent = text;
+    overlay.appendChild(t);
+  }
+
+  function redrawOverlay() {
+    clearOverlay();
+
+    const cam = renderer.getCamera().getState();
+    const ratio = cam.ratio;
+
+    const swMain = Math.max(1.6, Math.min(3.2, 2.4 / ratio));
+    const swCore = Math.max(1.0, Math.min(2.4, 1.5 / ratio));
+
+    const centerV = renderer.graphToViewport({ x: 0, y: 0 });
+    const sysRpx = graphRadiusToPx({ x: 0, y: 0 }, SYSTEM_R);
+
+    drawCircle(centerV.x, centerV.y, sysRpx, "rgba(0,0,0,0.34)", swMain, "rgba(0,0,0,0.00)");
+    drawText(centerV.x - sysRpx + 14, centerV.y - sysRpx + 22, "LIVING CITY DOMES", 12, 0.70);
+
+    const humanRpx = graphRadiusToPx({ x: 0, y: 0 }, 0.95);
+    drawCircle(centerV.x, centerV.y, humanRpx, "rgba(0,0,0,0.42)", Math.max(swCore, 1.2), "rgba(0,0,0,0.00)");
+    drawText(centerV.x, centerV.y - humanRpx - 10, "HUMAN", 11, 0.70, "middle");
+
+    const sizeHuman = Math.max(16, Math.min(28, 24 / ratio));
+    drawIconPath(centerV.x, centerV.y, "human", sizeHuman, 0.92, "#000000");
+
+    // CORE → HUMAN OKLAR
+    CORES.forEach(c => {
+      const gx = graph.getNodeAttribute(c.id, "x");
+      const gy = graph.getNodeAttribute(c.id, "y");
+      const pv = renderer.graphToViewport({ x: gx, y: gy });
+
+      const dx = centerV.x - pv.x;
+      const dy = centerV.y - pv.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+
+      const coreEdge = graphRadiusToPx({ x: gx, y: gy }, 3.1) + 6;
+      const humanEdge = humanRpx + 10;
+
+      const sx = pv.x + ux * coreEdge;
+      const sy = pv.y + uy * coreEdge;
+      const ex = centerV.x - ux * humanEdge;
+      const ey = centerV.y - uy * humanEdge;
+
+      const isActive = state.selected && isCore(state.selected) && state.selected === c.id;
+
+      const line = svgEl("line");
+      line.setAttribute("x1", String(sx));
+      line.setAttribute("y1", String(sy));
+      line.setAttribute("x2", String(ex));
+      line.setAttribute("y2", String(ey));
+      line.setAttribute("class", isActive ? "arrow-line arrow-active" : "arrow-line");
+      overlay.appendChild(line);
+
+      const arrowSize = 5;
+      const ax = ex;
+      const ay = ey;
+
+      const px1 = ax - ux * arrowSize - uy * arrowSize * 0.6;
+      const py1 = ay - uy * arrowSize + ux * arrowSize * 0.6;
+      const px2 = ax - ux * arrowSize + uy * arrowSize * 0.6;
+      const py2 = ay - uy * arrowSize - ux * arrowSize * 0.6;
+
+      const poly = svgEl("polygon");
+      poly.setAttribute("points", `${ax},${ay} ${px1},${py1} ${px2},${py2}`);
+poly.setAttribute(
+  "fill",
+  isActive ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.28)"
+);
+poly.setAttribute("opacity", "0.85");
+overlay.appendChild(poly);
+    });
+
+    // CORE HALO + ICONLAR
+    CORES.forEach(c => {
+      const x = graph.getNodeAttribute(c.id, "x");
+      const y = graph.getNodeAttribute(c.id, "y");
+      const p = renderer.graphToViewport({ x, y });
+
+      const rPx = graphRadiusToPx({ x, y }, 3.1);
+      drawCircle(p.x, p.y, rPx, "rgba(0,0,0,0.18)", swCore, "rgba(0,0,0,0.00)");
+
+      const len = Math.hypot(x, y) || 1;
+      const dirX = x / len;
+      const dirY = y / len;
+
+      const lx = p.x + dirX * (rPx + 14);
+      const ly = p.y + dirY * (rPx + 12);
+
+      const anchor = dirX > 0.25 ? "start" : (dirX < -0.25 ? "end" : "middle");
+      drawText(lx, ly, c.label, 14, 0.85, anchor);
+
+      const key =
+        c.id === "core_energy" ? "energy" :
+        c.id === "core_mobility" ? "mobility" :
+        c.id === "core_security" ? "security" :
+        c.id === "core_data" ? "data" :
+        c.id === "core_ecology" ? "ecology" :
+        null;
+
+      const sizeCore = Math.max(26, Math.min(46, 40 / ratio));
+
+      const glow = svgEl("circle");
+      glow.setAttribute("class", "pulse-halo");
+
+      const delay = ((Math.abs(x * 97 + y * 53)) % 1000) / 1000;
+      glow.style.animationDelay = (-delay * 2.6) + "s";
+
+      glow.setAttribute("cx", String(p.x));
+      glow.setAttribute("cy", String(p.y));
+      glow.setAttribute("r", String(Math.max(18, sizeCore * 0.95)));
+      glow.setAttribute("fill", "rgba(0,0,0,0.06)");
+      glow.setAttribute("stroke", "rgba(0,0,0,0.08)");
+      glow.setAttribute("stroke-width", "1");
+      overlay.appendChild(glow);
+
+      const bg = svgEl("circle");
+      bg.setAttribute("cx", String(p.x));
+      bg.setAttribute("cy", String(p.y));
+      bg.setAttribute("r", String(Math.max(14, sizeCore * 0.65)));
+      bg.setAttribute("fill", "rgba(255,255,255,0.97)");
+      bg.setAttribute("stroke", "rgba(0,0,0,0.35)");
+      bg.setAttribute("stroke-width", "1.2");
+      overlay.appendChild(bg);
+
+      drawIconPath(p.x, p.y, key, sizeCore, 0.98, "#000000");
+    });
+
+    // NON-CORE ICONS
+    graph.forEachNode((id, a) => {
+      if (String(id).startsWith("core_")) return;
+
+      const key = a.icon;
+      if (!key) return;
+
+      const cat = categoryOfNodeId(id);
+      if (cat && !state.filters[cat]) return;
+
+      const p = renderer.graphToViewport({ x: a.x, y: a.y });
+      const r = renderer.getCamera().getState().ratio;
+
+      const s = Math.max(12, Math.min(18, 14 / r));
+
+      const bg2 = svgEl("circle");
+      bg2.setAttribute("cx", String(p.x));
+      bg2.setAttribute("cy", String(p.y));
+      bg2.setAttribute("r", String(Math.max(7, s * 0.60)));
+      bg2.setAttribute("fill", "rgba(255,255,255,0.92)");
+      bg2.setAttribute("stroke", "rgba(0,0,0,0.18)");
+      bg2.setAttribute("stroke-width", "1");
+      overlay.appendChild(bg2);
+
+      drawIconPath(p.x, p.y, key, s, 0.92, "#000000");
+    });
+  }
+
+  renderer.getCamera().on("updated", () => redrawOverlay());
+
+  async function svgToImage(svgNode) {
+    const svgText = new XMLSerializer().serializeToString(svgNode);
+    const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+
+    return await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+      img.src = url;
+    });
+  }
+
+  document.getElementById("export").onclick = async () => {
+    try {
+      const canvases = renderer.getCanvases ? renderer.getCanvases() : null;
+      const layers = canvases
+        ? [canvases.edges, canvases.nodes, canvases.labels, canvases.hovers].filter(Boolean)
+        : Array.from(document.getElementById("container").querySelectorAll("canvas"));
+
+      if (!layers.length) { alert("Canvas bulunamadı."); return; }
+
+      const w = layers[0].width;
+      const h = layers[0].height;
+
+      const out = document.createElement("canvas");
+      out.width = w;
+      out.height = h;
+
+      const ctx = out.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+
+      const overlayImg = await svgToImage(overlay);
+      ctx.drawImage(overlayImg, 0, 0, w, h);
+
+      layers.forEach(c => ctx.drawImage(c, 0, 0));
+
+      const a = document.createElement("a");
+      a.href = out.toDataURL("image/png");
+      a.download = "living-city-domes-map.png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      console.error(err);
+      alert("Export hatası. F12 Console kırmızı satırı gönder.");
+    }
+  };
+
+  // MICRO DRIFT
+  const basePos = new Map();
+  function snapshotBasePositions() {
+    basePos.clear();
+    graph.forEachNode((id) => {
+      basePos.set(id, { x: graph.getNodeAttribute(id, "x"), y: graph.getNodeAttribute(id, "y") });
+    });
+  }
+
+  function hash01(str) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return (h % 100000) / 100000;
+  }
+
+  let lastT = 0;
+  function driftLoop(t) {
+    if (t - lastT < 40) { requestAnimationFrame(driftLoop); return; }
+    lastT = t;
+
+    const draggingId = state.dragging ? state.draggedNode : null;
+
+    graph.forEachNode((id) => {
+      if (String(id).startsWith("core_")) return;
+      if (id === draggingId) return;
+      if (pinnedNodes.has(id)) return;
+
+      const b = basePos.get(id);
+      if (!b) return;
+
+      const p1 = hash01(String(id) + "_p1");
+      const p2 = hash01(String(id) + "_p2");
+
+      const amp = 0.03 + p1 * 0.05;
+      const w1  = 0.0006 + p2 * 0.0007;
+      const ph  = (p1 + p2) * Math.PI * 2;
+
+      const x = b.x + Math.sin(t * w1 + ph) * amp;
+      const y = b.y + Math.cos(t * w1 + ph * 1.7) * amp;
+
+      graph.setNodeAttribute(id, "x", x);
+      graph.setNodeAttribute(id, "y", y);
+    });
+
+    refresh();
+    requestAnimationFrame(driftLoop);
+  }
+
+  applyLayoutA();
+  setInfo(null);
+  snapshotBasePositions();
+  refresh();
+  requestAnimationFrame(driftLoop);
+}
+
+main().catch(err => {
+  console.error(err);
+  alert("Hata: " + (err && err.message ? err.message : err));
+});
+</script>
+</body>
+</html>

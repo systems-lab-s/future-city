@@ -1,0 +1,79 @@
+{
+  "nodes": [
+    { "id": "core_energy", "label": "ENERGY CORE", "size": 28, "color": "#111111", "icon": "energy" },
+    { "id": "core_mobility", "label": "MOBILITY CORE", "size": 28, "color": "#111111", "icon": "mobility" },
+    { "id": "core_security", "label": "SECURITY CORE", "size": 28, "color": "#111111", "icon": "security" },
+    { "id": "core_data", "label": "DATA GOVERNANCE CORE", "size": 30, "color": "#111111", "icon": "data" },
+    { "id": "core_ecology", "label": "ECOLOGY CORE", "size": 28, "color": "#111111", "icon": "ecology" },
+
+    { "id": "en_solar", "label": "Solar Harvesting", "size": 12, "color": "#444444", "icon": "solar" },
+    { "id": "en_wind", "label": "Wind Harvesting", "size": 12, "color": "#444444", "icon": "wind" },
+    { "id": "en_storage", "label": "Energy Storage", "size": 12, "color": "#444444", "icon": "battery" },
+    { "id": "en_grid", "label": "Smart Grid Distribution", "size": 12, "color": "#444444", "icon": "grid" },
+    { "id": "en_monitor", "label": "Consumption Monitoring", "size": 12, "color": "#444444", "icon": "monitor" },
+    { "id": "en_ai", "label": "Load Prediction AI", "size": 13, "color": "#444444", "icon": "ai" },
+
+    { "id": "mo_tram", "label": "Tram Network", "size": 12, "color": "#444444", "icon": "tram" },
+    { "id": "mo_ped", "label": "Pedestrian Flow", "size": 12, "color": "#444444", "icon": "pedestrian" },
+    { "id": "mo_micro", "label": "Micro Mobility", "size": 12, "color": "#444444", "icon": "scooter" },
+    { "id": "mo_log", "label": "Logistics Flow", "size": 12, "color": "#444444", "icon": "logistics" },
+    { "id": "mo_sensors", "label": "Traffic Sensors", "size": 12, "color": "#444444", "icon": "sensor" },
+    { "id": "mo_ai", "label": "Mobility Optimization AI", "size": 13, "color": "#444444", "icon": "ai" },
+
+    { "id": "se_surv", "label": "Surveillance Systems", "size": 12, "color": "#444444", "icon": "camera" },
+    { "id": "se_access", "label": "Access Control", "size": 12, "color": "#444444", "icon": "lock" },
+    { "id": "se_face", "label": "Facial Recognition", "size": 12, "color": "#444444", "icon": "face" },
+    { "id": "se_behav", "label": "Behavioral Analysis AI", "size": 13, "color": "#444444", "icon": "behavior" },
+    { "id": "se_risk", "label": "Risk Prediction", "size": 12, "color": "#444444", "icon": "risk" },
+
+    { "id": "da_sensors", "label": "Urban Sensors", "size": 12, "color": "#444444", "icon": "sensor" },
+    { "id": "da_agg", "label": "Data Aggregation", "size": 12, "color": "#444444", "icon": "database" },
+    { "id": "da_engine", "label": "AI Decision Engine", "size": 14, "color": "#444444", "icon": "ai" },
+    { "id": "da_policy", "label": "Policy Automation", "size": 12, "color": "#444444", "icon": "policy" },
+    { "id": "da_feedback", "label": "Feedback Control", "size": 12, "color": "#444444", "icon": "feedback" },
+
+    { "id": "ec_water", "label": "Water Cycle Management", "size": 12, "color": "#444444", "icon": "water" },
+    { "id": "ec_green", "label": "Green Infrastructure", "size": 12, "color": "#444444", "icon": "leaf" },
+    { "id": "ec_farm", "label": "Urban Farming", "size": 12, "color": "#444444", "icon": "farm" },
+    { "id": "ec_climate", "label": "Climate Sensors", "size": 12, "color": "#444444", "icon": "climate" },
+    { "id": "ec_ai", "label": "Environmental Optimization AI", "size": 13, "color": "#444444", "icon": "ai" },
+
+    { "id": "hu_resident", "label": "Resident", "size": 8, "color": "#777777", "icon": "human" },
+    { "id": "hu_worker", "label": "Worker", "size": 8, "color": "#777777", "icon": "human" },
+    { "id": "hu_visitor", "label": "Visitor", "size": 8, "color": "#777777", "icon": "human" }
+  ],
+
+  "edges": [
+    { "id": "e1", "source": "core_energy", "target": "en_solar" },
+    { "id": "e2", "source": "core_energy", "target": "en_wind" },
+    { "id": "e3", "source": "core_energy", "target": "en_storage" },
+    { "id": "e4", "source": "core_energy", "target": "en_grid" },
+    { "id": "e5", "source": "core_energy", "target": "en_monitor" },
+    { "id": "e6", "source": "core_energy", "target": "en_ai" },
+
+    { "id": "e7", "source": "core_mobility", "target": "mo_tram" },
+    { "id": "e8", "source": "core_mobility", "target": "mo_ped" },
+    { "id": "e9", "source": "core_mobility", "target": "mo_micro" },
+    { "id": "e10", "source": "core_mobility", "target": "mo_log" },
+    { "id": "e11", "source": "core_mobility", "target": "mo_sensors" },
+    { "id": "e12", "source": "core_mobility", "target": "mo_ai" },
+
+    { "id": "e13", "source": "core_security", "target": "se_surv" },
+    { "id": "e14", "source": "core_security", "target": "se_access" },
+    { "id": "e15", "source": "core_security", "target": "se_face" },
+    { "id": "e16", "source": "core_security", "target": "se_behav" },
+    { "id": "e17", "source": "core_security", "target": "se_risk" },
+
+    { "id": "e18", "source": "core_data", "target": "da_sensors" },
+    { "id": "e19", "source": "core_data", "target": "da_agg" },
+    { "id": "e20", "source": "core_data", "target": "da_engine" },
+    { "id": "e21", "source": "core_data", "target": "da_policy" },
+    { "id": "e22", "source": "core_data", "target": "da_feedback" },
+
+    { "id": "e23", "source": "core_ecology", "target": "ec_water" },
+    { "id": "e24", "source": "core_ecology", "target": "ec_green" },
+    { "id": "e25", "source": "core_ecology", "target": "ec_farm" },
+    { "id": "e26", "source": "core_ecology", "target": "ec_climate" },
+    { "id": "e27", "source": "core_ecology", "target": "ec_ai" }
+  ]
+}
