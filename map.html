@@ -116,20 +116,19 @@
     }
 
     .arrow-line {
-  stroke: rgba(0,0,0,0.16);
-  stroke-width: 0.8;
-  stroke-linecap: round;
-  stroke-dasharray: 2 8;  /* ince, kesik kesik çizgi */
-}
+      stroke: rgba(0,0,0,0.16);
+      stroke-width: 0.8;
+      stroke-linecap: round;
+      stroke-dasharray: 2 8;
+    }
 
-.arrow-active {
-  stroke: rgba(0,0,0,0.55);
-  stroke-width: 1.2;
-  stroke-linecap: round;
-  stroke-dasharray: 3 7;
-  animation: flowArrow 0.85s linear infinite;
-}
-
+    .arrow-active {
+      stroke: rgba(0,0,0,0.55);
+      stroke-width: 1.2;
+      stroke-linecap: round;
+      stroke-dasharray: 3 7;
+      animation: flowArrow 0.85s linear infinite;
+    }
   </style>
 
   <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
@@ -198,7 +197,9 @@ async function main() {
   if (!res.ok) throw new Error("graph.json okunamadı: " + res.status);
   const data = await res.json();
 
-  const graph = new graphology.Graph({ multi: true });
+  const Graph = window.graphology.Graph;
+  const SigmaClass = window.Sigma || window.sigma;
+  const graph = new Graph({ multi: true });
 
   const overlay = document.getElementById("overlay");
   const info = document.getElementById("info");
@@ -258,7 +259,6 @@ async function main() {
     info.textContent = graph.getNodeAttribute(id, "label") + " · connections: " + graph.degree(id);
   }
 
-  // ICON DICTIONARY (aynen seninkinin devamı)
   const ICON_PATHS = {
     energy:   ['M13 2L3 14h7l-1 8 10-12h-7l1-8z'],
     mobility: [
@@ -453,7 +453,7 @@ async function main() {
     });
   });
 
-  const renderer = new Sigma(graph, document.getElementById("container"), {
+  const renderer = new SigmaClass(graph, document.getElementById("container"), {
     renderEdgeLabels: false,
     labelDensity: 1.0,
     labelGridCellSize: 60,
@@ -587,8 +587,10 @@ async function main() {
     renderer.getCamera().disable();
 
     e.preventSigmaDefault = true;
-    e.original.preventDefault();
-    e.original.stopPropagation();
+    if (e.original) {
+      e.original.preventDefault();
+      e.original.stopPropagation();
+    }
   });
 
   mouse.on("mousemove", (e) => {
@@ -598,8 +600,10 @@ async function main() {
     graph.setNodeAttribute(state.draggedNode, "y", p.y);
 
     e.preventSigmaDefault = true;
-    e.original.preventDefault();
-    e.original.stopPropagation();
+    if (e.original) {
+      e.original.preventDefault();
+      e.original.stopPropagation();
+    }
     refresh();
   });
 
@@ -618,6 +622,66 @@ async function main() {
     renderer.getCamera().enable();
     refresh();
   }, { passive: true });
+
+  /* TOUCH DRAG (MOBİL) */
+  const touch = renderer.getTouchCaptor ? renderer.getTouchCaptor() : null;
+
+  if (touch) {
+    touch.on("touchstart", (e) => {
+      if (!e.touches || !e.touches.length) return;
+      const t = e.touches[0];
+      const n = renderer.getNodeAtPosition({ x: t.clientX, y: t.clientY });
+      if (!n) return;
+      if (isCore(n)) return;
+
+      state.dragging = true;
+      state.draggedNode = n;
+      renderer.getCamera().disable();
+
+      if (e.original) {
+        e.original.preventDefault();
+        e.original.stopPropagation();
+      }
+      e.preventSigmaDefault = true;
+    });
+
+    touch.on("touchmove", (e) => {
+      if (!state.dragging || !state.draggedNode) return;
+      if (!e.touches || !e.touches.length) return;
+
+      const t = e.touches[0];
+      const p = renderer.viewportToGraph({ x: t.clientX, y: t.clientY });
+
+      graph.setNodeAttribute(state.draggedNode, "x", p.x);
+      graph.setNodeAttribute(state.draggedNode, "y", p.y);
+
+      if (e.original) {
+        e.original.preventDefault();
+        e.original.stopPropagation();
+      }
+      e.preventSigmaDefault = true;
+      refresh();
+    });
+
+    const endTouch = () => {
+      if (!state.dragging || !state.draggedNode) return;
+
+      const id = state.draggedNode;
+      const x = graph.getNodeAttribute(id, "x");
+      const y = graph.getNodeAttribute(id, "y");
+
+      pinnedNodes.add(id);
+      basePos.set(id, { x, y });
+
+      state.dragging = false;
+      state.draggedNode = null;
+      renderer.getCamera().enable();
+      refresh();
+    };
+
+    touch.on("touchup", endTouch);
+    touch.on("touchcancel", endTouch);
+  }
 
   document.getElementById("search").addEventListener("input", (e) => {
     const q = e.target.value.trim().toLowerCase();
@@ -794,7 +858,6 @@ async function main() {
     const sizeHuman = Math.max(16, Math.min(28, 24 / ratio));
     drawIconPath(centerV.x, centerV.y, "human", sizeHuman, 0.92, "#000000");
 
-    // CORE → HUMAN OKLAR
     CORES.forEach(c => {
       const gx = graph.getNodeAttribute(c.id, "x");
       const gy = graph.getNodeAttribute(c.id, "y");
@@ -835,15 +898,11 @@ async function main() {
 
       const poly = svgEl("polygon");
       poly.setAttribute("points", `${ax},${ay} ${px1},${py1} ${px2},${py2}`);
-poly.setAttribute(
-  "fill",
-  isActive ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.28)"
-);
-poly.setAttribute("opacity", "0.85");
-overlay.appendChild(poly);
+      poly.setAttribute("fill", isActive ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.28)");
+      poly.setAttribute("opacity", "0.85");
+      overlay.appendChild(poly);
     });
 
-    // CORE HALO + ICONLAR
     CORES.forEach(c => {
       const x = graph.getNodeAttribute(c.id, "x");
       const y = graph.getNodeAttribute(c.id, "y");
@@ -898,7 +957,6 @@ overlay.appendChild(poly);
       drawIconPath(p.x, p.y, key, sizeCore, 0.98, "#000000");
     });
 
-    // NON-CORE ICONS
     graph.forEachNode((id, a) => {
       if (String(id).startsWith("core_")) return;
 
@@ -978,7 +1036,6 @@ overlay.appendChild(poly);
     }
   };
 
-  // MICRO DRIFT
   const basePos = new Map();
   function snapshotBasePositions() {
     basePos.clear();
