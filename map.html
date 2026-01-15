@@ -194,6 +194,7 @@ async function main() {
 
   const overlay = document.getElementById("overlay");
   const info = document.getElementById("info");
+  const containerEl = document.getElementById("container");
 
   const state = {
     selected: null,
@@ -203,7 +204,9 @@ async function main() {
     dragStartPos: null,
     dragOffset: null,
     conflictCore: null,
-    conflictMode: null,
+    conflictMode: null,      // "ok" veya "bad"
+    touchStartViewport: null,
+    touchStartTime: 0,
     filters: {
       energy: true, mobility: true, security: true, data: true, ecology: true,
       coreOnly: false,
@@ -234,33 +237,6 @@ async function main() {
     if (s.startsWith("ec_")) return "core_ecology";
     if (s.startsWith("core_")) return s;
     return null;
-  }
-
-  const MULTI_CORE_OVERRIDES = {
-    // Örnek
-    // "en_solar_harvesting": ["core_energy", "core_ecology"]
-  };
-
-  function allowedCoresForNode(id) {
-    const allowed = new Set();
-
-    const home = coreOfNodeId(id);
-    if (home) allowed.add(home);
-
-    const extra = MULTI_CORE_OVERRIDES[id];
-    if (extra) {
-      extra.forEach(c => allowed.add(c));
-    }
-
-    if (graph.hasNode(id)) {
-      graph.forEachNeighbor(id, n => {
-        if (isCore(n)) {
-          allowed.add(n);
-        }
-      });
-    }
-
-    return Array.from(allowed);
   }
 
   function stable01(s) {
@@ -419,6 +395,11 @@ async function main() {
     ]
   };
 
+  // İstersen buraya bazı nodelar için ekstra core izinleri ekleyebilirsin
+  const MULTI_CORE_OVERRIDES = {
+    // "en_solar": ["core_energy", "core_ecology"]
+  };
+
   function drawIconPath(vx, vy, key, sizePx, opacity = 0.95, fill = "#000000") {
     const paths = ICON_PATHS[key];
     if (!paths) return;
@@ -489,7 +470,7 @@ async function main() {
     });
   });
 
-  const renderer = new Sigma(graph, document.getElementById("container"), {
+  const renderer = new Sigma(graph, containerEl, {
     renderEdgeLabels: false,
     labelDensity: 1.0,
     labelGridCellSize: 60,
@@ -604,6 +585,37 @@ async function main() {
     refresh();
   });
 
+  function allowedCoresForNode(id) {
+    const allowed = new Set();
+
+    const home = coreOfNodeId(id);
+    if (home) allowed.add(home);
+
+    const extra = MULTI_CORE_OVERRIDES[id];
+    if (extra) extra.forEach(c => allowed.add(c));
+
+    if (graph.hasNode(id)) {
+      graph.forEachNeighbor(id, n => {
+        if (isCore(n)) allowed.add(n);
+      });
+    }
+
+    return Array.from(allowed);
+  }
+
+  const CORES = [
+    { id: "core_security", label: "SECURITY" },
+    { id: "core_mobility", label: "MOBILITY" },
+    { id: "core_energy", label: "ENERGY" },
+    { id: "core_data", label: "DATA" },
+    { id: "core_ecology", label: "ECOLOGY" }
+  ].filter(c => graph.hasNode(c.id));
+
+  const SYSTEM_R = 10.8;
+  const CORE_RING_R = 7.3;
+  const CORE_CLUSTER_R = 3.0;
+  const CORE_CONFLICT_R = 3.1;
+
   function updateConflictForNode(nodeId) {
     const x = graph.getNodeAttribute(nodeId, "x");
     const y = graph.getNodeAttribute(nodeId, "y");
@@ -614,7 +626,7 @@ async function main() {
     let nearestCore = null;
     let nearestDist = Infinity;
 
-    for (const c of CORES) {
+    CORES.forEach(c => {
       const cx = graph.getNodeAttribute(c.id, "x");
       const cy = graph.getNodeAttribute(c.id, "y");
       const d = Math.hypot(x - cx, y - cy);
@@ -622,7 +634,7 @@ async function main() {
         nearestCore = c.id;
         nearestDist = d;
       }
-    }
+    });
 
     if (!nearestCore) return;
 
@@ -694,6 +706,64 @@ async function main() {
     }
     refresh();
   });
+
+  // Dokunmatik için ek drag desteği
+  function getTouchViewportPos(evt) {
+    if (!evt.touches || !evt.touches.length) return null;
+    const t = evt.touches[0];
+    const rect = containerEl.getBoundingClientRect();
+    return {
+      x: t.clientX - rect.left,
+      y: t.clientY - rect.top
+    };
+  }
+
+  containerEl.addEventListener("touchstart", (evt) => {
+    const pos = getTouchViewportPos(evt);
+    if (!pos) return;
+
+    state.touchStartViewport = { x: pos.x, y: pos.y };
+    state.touchStartTime = performance.now();
+
+    const n = renderer.getNodeAtPosition({ x: pos.x, y: pos.y });
+    if (!n || isCore(n)) {
+      return;
+    }
+
+    const ax = graph.getNodeAttribute(n, "x");
+    const ay = graph.getNodeAttribute(n, "y");
+    const gp = renderer.viewportToGraph({ x: pos.x, y: pos.y });
+
+    state.dragStartPos = { x: ax, y: ay };
+    state.dragOffset = { dx: ax - gp.x, dy: ay - gp.y };
+    state.conflictCore = null;
+    state.conflictMode = null;
+
+    state.dragging = true;
+    state.draggedNode = n;
+    renderer.getCamera().disable();
+  }, { passive: true });
+
+  containerEl.addEventListener("touchmove", (evt) => {
+    if (!state.dragging || !state.draggedNode) return;
+
+    const pos = getTouchViewportPos(evt);
+    if (!pos) return;
+
+    const gp = renderer.viewportToGraph({ x: pos.x, y: pos.y });
+    const off = state.dragOffset || { dx: 0, dy: 0 };
+
+    const x = gp.x + off.dx;
+    const y = gp.y + off.dy;
+
+    graph.setNodeAttribute(state.draggedNode, "x", x);
+    graph.setNodeAttribute(state.draggedNode, "y", y);
+
+    updateConflictForNode(state.draggedNode);
+
+    evt.preventDefault();
+    refresh();
+  }, { passive: false });
 
   ["mouseup","touchend","touchcancel"].forEach(type => {
     window.addEventListener(type, () => {
@@ -779,19 +849,6 @@ async function main() {
   }
   bindFilters();
 
-  const CORES = [
-    { id: "core_security", label: "SECURITY" },
-    { id: "core_mobility", label: "MOBILITY" },
-    { id: "core_energy", label: "ENERGY" },
-    { id: "core_data", label: "DATA" },
-    { id: "core_ecology", label: "ECOLOGY" }
-  ].filter(c => graph.hasNode(c.id));
-
-  const SYSTEM_R = 10.8;
-  const CORE_RING_R = 7.3;
-  const CORE_CLUSTER_R = 3.0;
-  const CORE_CONFLICT_R = 3.1;
-
   function applyLayoutA() {
     const n = CORES.length || 5;
 
@@ -857,6 +914,11 @@ async function main() {
     renderer.getCamera().animate({ x: 0, y: 0, ratio: 1 }, { duration: 320 });
     refresh();
   }
+
+  document.getElementById("layout").onclick = () => {
+    applyLayoutA();
+    setTimeout(() => snapshotBasePositions(), 80);
+  };
 
   function svgEl(tag) { return document.createElementNS("http://www.w3.org/2000/svg", tag); }
 
@@ -999,7 +1061,7 @@ async function main() {
         ly,
         c.label,
         14,
-        isBad ? 0.95 : 0.85,
+        isBad || isOk ? 0.95 : 0.85,
         anchor
       );
 
@@ -1107,7 +1169,7 @@ async function main() {
       const canvases = renderer.getCanvases ? renderer.getCanvases() : null;
       const layers = canvases
         ? [canvases.edges, canvases.nodes, canvases.labels, canvases.hovers].filter(Boolean)
-        : Array.from(document.getElementById("container").querySelectorAll("canvas"));
+        : Array.from(containerEl.querySelectorAll("canvas"));
 
       if (!layers.length) { alert("Canvas bulunamadı."); return; }
 
