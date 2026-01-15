@@ -217,6 +217,11 @@ async function main() {
 
   const pinnedNodes = new Set();
 
+  function isTouchLikeEvent(e) {
+    const oe = e.original || e.event || null;
+    return !!(oe && (oe.touches || oe.changedTouches));
+  }
+
   function isCore(id) { return String(id).startsWith("core_"); }
 
   function categoryOfNodeId(id) {
@@ -597,7 +602,8 @@ async function main() {
     refresh();
   });
 
-  mouse.on("mousemove", (e) => {
+    mouse.on("mousemove", (e) => {
+    if (isTouchLikeEvent(e)) return;
     if (state.dragging) return;
     const node = renderer.getNodeAtPosition({ x: e.x, y: e.y }) || null;
     if (node === lastHover) return;
@@ -607,7 +613,9 @@ async function main() {
     if (!state.selected) refresh();
   });
 
-  mouse.on("mousedown", (e) => {
+   mouse.on("mousedown", (e) => {
+    if (isTouchLikeEvent(e)) return;
+
     const n = renderer.getNodeAtPosition({ x: e.x, y: e.y });
     if (!n) return;
     if (isCore(n)) return;
@@ -623,7 +631,8 @@ async function main() {
     }
   });
 
-  mouse.on("mousemove", (e) => {
+   mouse.on("mousemove", (e) => {
+    if (isTouchLikeEvent(e)) return;
     if (!state.dragging || !state.draggedNode) return;
     const p = renderer.viewportToGraph({ x: e.x, y: e.y });
     graph.setNodeAttribute(state.draggedNode, "x", p.x);
