@@ -203,6 +203,7 @@ async function main() {
     dragStartPos: null,
     dragOffset: null,
     conflictCore: null,
+    conflictMode: null,
     filters: {
       energy: true, mobility: true, security: true, data: true, ecology: true,
       coreOnly: false,
@@ -233,6 +234,33 @@ async function main() {
     if (s.startsWith("ec_")) return "core_ecology";
     if (s.startsWith("core_")) return s;
     return null;
+  }
+
+  const MULTI_CORE_OVERRIDES = {
+    // Örnek
+    // "en_solar_harvesting": ["core_energy", "core_ecology"]
+  };
+
+  function allowedCoresForNode(id) {
+    const allowed = new Set();
+
+    const home = coreOfNodeId(id);
+    if (home) allowed.add(home);
+
+    const extra = MULTI_CORE_OVERRIDES[id];
+    if (extra) {
+      extra.forEach(c => allowed.add(c));
+    }
+
+    if (graph.hasNode(id)) {
+      graph.forEachNeighbor(id, n => {
+        if (isCore(n)) {
+          allowed.add(n);
+        }
+      });
+    }
+
+    return Array.from(allowed);
   }
 
   function stable01(s) {
@@ -577,28 +605,36 @@ async function main() {
   });
 
   function updateConflictForNode(nodeId) {
-    const homeCore = coreOfNodeId(nodeId);
-    if (!homeCore) {
-      state.conflictCore = null;
-      return;
-    }
-
     const x = graph.getNodeAttribute(nodeId, "x");
     const y = graph.getNodeAttribute(nodeId, "y");
 
-    let conflict = null;
+    state.conflictCore = null;
+    state.conflictMode = null;
+
+    let nearestCore = null;
+    let nearestDist = Infinity;
+
     for (const c of CORES) {
-      if (c.id === homeCore) continue;
       const cx = graph.getNodeAttribute(c.id, "x");
       const cy = graph.getNodeAttribute(c.id, "y");
       const d = Math.hypot(x - cx, y - cy);
-      if (d < CORE_CONFLICT_R) {
-        conflict = c.id;
-        break;
+      if (d < CORE_CONFLICT_R && d < nearestDist) {
+        nearestCore = c.id;
+        nearestDist = d;
       }
     }
 
-    state.conflictCore = conflict;
+    if (!nearestCore) return;
+
+    const allowed = allowedCoresForNode(nodeId);
+
+    if (allowed.includes(nearestCore)) {
+      state.conflictCore = nearestCore;
+      state.conflictMode = "ok";
+    } else {
+      state.conflictCore = nearestCore;
+      state.conflictMode = "bad";
+    }
   }
 
   mouse.on("mousemove", (e) => {
@@ -624,6 +660,7 @@ async function main() {
     state.dragStartPos = { x: ax, y: ay };
     state.dragOffset = { dx: ax - gp.x, dy: ay - gp.y };
     state.conflictCore = null;
+    state.conflictMode = null;
 
     state.dragging = true;
     state.draggedNode = n;
@@ -663,8 +700,14 @@ async function main() {
       if (!state.dragging || !state.draggedNode) return;
 
       const id = state.draggedNode;
+      const homeCore = coreOfNodeId(id);
 
-      if (state.conflictCore && state.conflictCore !== coreOfNodeId(id) && state.dragStartPos) {
+      if (
+        state.conflictCore &&
+        state.conflictMode === "bad" &&
+        state.conflictCore !== homeCore &&
+        state.dragStartPos
+      ) {
         graph.setNodeAttribute(id, "x", state.dragStartPos.x);
         graph.setNodeAttribute(id, "y", state.dragStartPos.y);
       }
@@ -680,6 +723,7 @@ async function main() {
       state.dragStartPos = null;
       state.dragOffset = null;
       state.conflictCore = null;
+      state.conflictMode = null;
       renderer.getCamera().enable();
       refresh();
     }, { passive: true });
@@ -808,15 +852,11 @@ async function main() {
     });
 
     state.conflictCore = null;
+    state.conflictMode = null;
 
     renderer.getCamera().animate({ x: 0, y: 0, ratio: 1 }, { duration: 320 });
     refresh();
   }
-
-  document.getElementById("layout").onclick = () => {
-    applyLayoutA();
-    setTimeout(() => snapshotBasePositions(), 80);
-  };
 
   function svgEl(tag) { return document.createElementNS("http://www.w3.org/2000/svg", tag); }
 
@@ -928,15 +968,21 @@ async function main() {
       const y = graph.getNodeAttribute(c.id, "y");
       const p = renderer.graphToViewport({ x, y });
 
-      const isConflict = state.conflictCore === c.id;
+      const isTarget = state.conflictCore === c.id;
+      const isBad = isTarget && state.conflictMode === "bad";
+      const isOk  = isTarget && state.conflictMode === "ok";
 
       const rPx = graphRadiusToPx({ x, y }, 3.1);
       drawCircle(
         p.x,
         p.y,
-        isConflict ? rPx * 0.93 : rPx,
-        isConflict ? "rgba(220,0,0,0.70)" : "rgba(0,0,0,0.18)",
-        swCore * (isConflict ? 1.4 : 1.0),
+        isTarget && isBad ? rPx * 0.93 : rPx,
+        isBad
+          ? "rgba(220,0,0,0.70)"
+          : isOk
+            ? "rgba(0,150,0,0.70)"
+            : "rgba(0,0,0,0.18)",
+        swCore * (isBad ? 1.4 : 1.0),
         "rgba(0,0,0,0.00)"
       );
 
@@ -953,7 +999,7 @@ async function main() {
         ly,
         c.label,
         14,
-        isConflict ? 0.95 : 0.85,
+        isBad ? 0.95 : 0.85,
         anchor
       );
 
@@ -978,11 +1024,19 @@ async function main() {
       glow.setAttribute("r", String(Math.max(18, sizeCore * 0.95)));
       glow.setAttribute(
         "fill",
-        isConflict ? "rgba(255,0,0,0.06)" : "rgba(0,0,0,0.06)"
+        isBad
+          ? "rgba(255,0,0,0.06)"
+          : isOk
+            ? "rgba(0,200,0,0.06)"
+            : "rgba(0,0,0,0.06)"
       );
       glow.setAttribute(
         "stroke",
-        isConflict ? "rgba(220,0,0,0.75)" : "rgba(0,0,0,0.08)"
+        isBad
+          ? "rgba(220,0,0,0.75)"
+          : isOk
+            ? "rgba(0,150,0,0.75)"
+            : "rgba(0,0,0,0.08)"
       );
       glow.setAttribute("stroke-width", "1");
       overlay.appendChild(glow);
@@ -994,7 +1048,11 @@ async function main() {
       bg.setAttribute("fill", "rgba(255,255,255,0.97)");
       bg.setAttribute(
         "stroke",
-        isConflict ? "rgba(220,0,0,0.85)" : "rgba(0,0,0,0.35)"
+        isBad
+          ? "rgba(220,0,0,0.85)"
+          : isOk
+            ? "rgba(0,150,0,0.85)"
+            : "rgba(0,0,0,0.35)"
       );
       bg.setAttribute("stroke-width", "1.2");
       overlay.appendChild(bg);
@@ -1089,9 +1147,9 @@ async function main() {
     });
   }
 
-  function hash01(str) {
+  function hash01(s) {
     let h = 2166136261 >>> 0;
-    for (let i = 0; i < str.length; i++) {
+    for (let i = 0; i < s.length; i++) {
       h ^= s.charCodeAt(i);
       h = Math.imul(h, 16777619) >>> 0;
     }
