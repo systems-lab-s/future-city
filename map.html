@@ -169,7 +169,7 @@
     <div class="box" style="opacity:.85; line-height:1.5;">
       Wheel zoom.<br />
       Drag background pan.<br />
-      Drag node move (desktop).
+      Drag node move.
     </div>
   </div>
 
@@ -201,6 +201,7 @@ async function main() {
     dragging: false,
     draggedNode: null,
     dragStartPos: null,
+    dragOffset: null,
     conflictCore: null,
     filters: {
       energy: true, mobility: true, security: true, data: true, ecology: true,
@@ -218,7 +219,7 @@ async function main() {
     if (s.startsWith("core_energy") || s.startsWith("en_")) return "energy";
     if (s.startsWith("core_mobility") || s.startsWith("mo_")) return "mobility";
     if (s.startsWith("core_security") || s.startsWith("se_")) return "security";
-    if (s.startsWith("core_data") || s.startsWith("da_")) return "data";
+    if (s.startsWith("core_data") || s.startsWith("da_") || s.startsWith("hu_")) return "data";
     if (s.startsWith("core_ecology") || s.startsWith("ec_")) return "ecology";
     return null;
   }
@@ -252,6 +253,11 @@ async function main() {
   function setInfo(id) {
     if (!id) { info.textContent = "Click a node"; return; }
     info.textContent = graph.getNodeAttribute(id, "label") + " · connections: " + graph.degree(id);
+  }
+
+  function isTouchLikeEvent(e) {
+    const oe = e.original || e.event || e;
+    return !!(oe && (oe.touches || oe.changedTouches));
   }
 
   const ICON_PATHS = {
@@ -551,7 +557,6 @@ async function main() {
   });
 
   const mouse = renderer.getMouseCaptor();
-  const isTouchDevice = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
 
   let lastHover = null;
   let clickLock = false;
@@ -596,55 +601,65 @@ async function main() {
     state.conflictCore = conflict;
   }
 
-  if (!isTouchDevice) {
-    mouse.on("mousemove", (e) => {
-      if (state.dragging) return;
-      const node = renderer.getNodeAtPosition({ x: e.x, y: e.y }) || null;
-      if (node === lastHover) return;
-      lastHover = node;
-      state.hovering = node;
-      if (!state.selected) setInfo(node);
-      if (!state.selected) refresh();
-    });
+  mouse.on("mousemove", (e) => {
+    if (isTouchLikeEvent(e)) return;
+    if (state.dragging) return;
+    const node = renderer.getNodeAtPosition({ x: e.x, y: e.y }) || null;
+    if (node === lastHover) return;
+    lastHover = node;
+    state.hovering = node;
+    if (!state.selected) setInfo(node);
+    if (!state.selected) refresh();
+  });
 
-    mouse.on("mousedown", (e) => {
-      const n = renderer.getNodeAtPosition({ x: e.x, y: e.y });
-      if (!n) return;
-      if (isCore(n)) return;
+  mouse.on("mousedown", (e) => {
+    const n = renderer.getNodeAtPosition({ x: e.x, y: e.y });
+    if (!n) return;
+    if (isCore(n)) return;
 
-      const ax = graph.getNodeAttribute(n, "x");
-      const ay = graph.getNodeAttribute(n, "y");
-      state.dragStartPos = { x: ax, y: ay };
-      state.conflictCore = null;
+    const ax = graph.getNodeAttribute(n, "x");
+    const ay = graph.getNodeAttribute(n, "y");
+    const gp = renderer.viewportToGraph({ x: e.x, y: e.y });
 
-      state.dragging = true;
-      state.draggedNode = n;
-      renderer.getCamera().disable();
+    state.dragStartPos = { x: ax, y: ay };
+    state.dragOffset = { dx: ax - gp.x, dy: ay - gp.y };
+    state.conflictCore = null;
 
-      e.preventSigmaDefault = true;
-      if (e.original) {
-        e.original.preventDefault();
-        e.original.stopPropagation();
-      }
-    });
+    state.dragging = true;
+    state.draggedNode = n;
+    renderer.getCamera().disable();
 
-    mouse.on("mousemove", (e) => {
-      if (!state.dragging || !state.draggedNode) return;
-      const p = renderer.viewportToGraph({ x: e.x, y: e.y });
-      graph.setNodeAttribute(state.draggedNode, "x", p.x);
-      graph.setNodeAttribute(state.draggedNode, "y", p.y);
+    e.preventSigmaDefault = true;
+    if (e.original) {
+      e.original.preventDefault();
+      e.original.stopPropagation();
+    }
+  });
 
-      updateConflictForNode(state.draggedNode);
+  mouse.on("mousemove", (e) => {
+    if (!state.dragging || !state.draggedNode) return;
 
-      e.preventSigmaDefault = true;
-      if (e.original) {
-        e.original.preventDefault();
-        e.original.stopPropagation();
-      }
-      refresh();
-    });
+    const gp = renderer.viewportToGraph({ x: e.x, y: e.y });
+    const off = state.dragOffset || { dx: 0, dy: 0 };
 
-    window.addEventListener("mouseup", () => {
+    const x = gp.x + off.dx;
+    const y = gp.y + off.dy;
+
+    graph.setNodeAttribute(state.draggedNode, "x", x);
+    graph.setNodeAttribute(state.draggedNode, "y", y);
+
+    updateConflictForNode(state.draggedNode);
+
+    e.preventSigmaDefault = true;
+    if (e.original) {
+      e.original.preventDefault();
+      e.original.stopPropagation();
+    }
+    refresh();
+  });
+
+  ["mouseup","touchend","touchcancel"].forEach(type => {
+    window.addEventListener(type, () => {
       if (!state.dragging || !state.draggedNode) return;
 
       const id = state.draggedNode;
@@ -663,11 +678,12 @@ async function main() {
       state.dragging = false;
       state.draggedNode = null;
       state.dragStartPos = null;
+      state.dragOffset = null;
       state.conflictCore = null;
       renderer.getCamera().enable();
       refresh();
     }, { passive: true });
-  }
+  });
 
   document.getElementById("search").addEventListener("input", (e) => {
     const q = e.target.value.trim().toLowerCase();
@@ -1076,7 +1092,7 @@ async function main() {
   function hash01(str) {
     let h = 2166136261 >>> 0;
     for (let i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
+      h ^= s.charCodeAt(i);
       h = Math.imul(h, 16777619) >>> 0;
     }
     return (h % 100000) / 100000;
