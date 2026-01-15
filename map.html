@@ -2,7 +2,7 @@
 <html lang="tr">
 <head>
   <meta charset="utf-8" />
-  <title>Future City · Interactive Map</title>
+  <title>Living City Domes · Interactive Map</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <style>
@@ -119,7 +119,7 @@
       stroke: rgba(0,0,0,0.16);
       stroke-width: 0.8;
       stroke-linecap: round;
-      stroke-dasharray: 2 8;
+      stroke-dasharray: 2 8;  /* ince, kesik kesik çizgi */
     }
 
     .arrow-active {
@@ -143,7 +143,7 @@
     <div id="brand">
       <div id="logo">LC</div>
       <div>
-        <div><b>Future City</b></div>
+        <div><b>Living City Domes</b></div>
         <div style="font-size:11px; opacity:.7;">Interactive System Mapping</div>
       </div>
     </div>
@@ -197,9 +197,7 @@ async function main() {
   if (!res.ok) throw new Error("graph.json okunamadı: " + res.status);
   const data = await res.json();
 
-  const Graph = window.graphology.Graph;
-  const SigmaClass = window.Sigma || window.sigma;
-  const graph = new Graph({ multi: true });
+  const graph = new graphology.Graph({ multi: true });
 
   const overlay = document.getElementById("overlay");
   const info = document.getElementById("info");
@@ -209,6 +207,7 @@ async function main() {
     hovering: null,
     dragging: false,
     draggedNode: null,
+    conflictCore: null, // çarpışan core id’si
     filters: {
       energy: true, mobility: true, security: true, data: true, ecology: true,
       coreOnly: false,
@@ -240,6 +239,31 @@ async function main() {
     if (s.startsWith("hu_")) return "core_data";
     if (s.startsWith("core_")) return s;
     return null;
+  }
+
+  // Drag edilen node başka bir core’un dairesine girdi mi?
+  function updateConflictForNode(nodeId) {
+    state.conflictCore = null;
+    if (!nodeId) return;
+
+    const homeCore = coreOfNodeId(nodeId);
+    const nx = graph.getNodeAttribute(nodeId, "x");
+    const ny = graph.getNodeAttribute(nodeId, "y");
+
+    const COLLISION_R = 3.1; // core halo yarıçapı (graph space)
+
+    CORES.forEach(c => {
+      if (!graph.hasNode(c.id)) return;
+      if (c.id === homeCore) return; // kendi core’una girmesi serbest
+
+      const cx = graph.getNodeAttribute(c.id, "x");
+      const cy = graph.getNodeAttribute(c.id, "y");
+      const d = Math.hypot(nx - cx, ny - cy);
+
+      if (d < COLLISION_R) {
+        state.conflictCore = c.id;
+      }
+    });
   }
 
   function stable01(s) {
@@ -424,8 +448,14 @@ async function main() {
     overlay.appendChild(g);
   }
 
-  data.nodes.forEach(n => {
+   data.nodes.forEach(n => {
     const id = n.id;
+
+    // HUMAN personas: Resident, Worker, Visitor → tamamen kaldır
+    if (id === "hu_resident" || id === "hu_worker" || id === "hu_visitor") {
+      return;
+    }
+
     const core = isCore(id);
     graph.addNode(id, {
       label: n.label,
@@ -453,7 +483,7 @@ async function main() {
     });
   });
 
-  const renderer = new SigmaClass(graph, document.getElementById("container"), {
+  const renderer = new Sigma(graph, document.getElementById("container"), {
     renderEdgeLabels: false,
     labelDensity: 1.0,
     labelGridCellSize: 60,
@@ -599,6 +629,9 @@ async function main() {
     graph.setNodeAttribute(state.draggedNode, "x", p.x);
     graph.setNodeAttribute(state.draggedNode, "y", p.y);
 
+    // drag sırasında çarpışma kontrolü
+    updateConflictForNode(state.draggedNode);
+
     e.preventSigmaDefault = true;
     if (e.original) {
       e.original.preventDefault();
@@ -607,30 +640,14 @@ async function main() {
     refresh();
   });
 
-  window.addEventListener("mouseup", () => {
-    if (!state.dragging || !state.draggedNode) return;
-
-    const id = state.draggedNode;
-    const x = graph.getNodeAttribute(id, "x");
-    const y = graph.getNodeAttribute(id, "y");
-
-    pinnedNodes.add(id);
-    basePos.set(id, { x, y });
-
-    state.dragging = false;
-    state.draggedNode = null;
-    renderer.getCamera().enable();
-    refresh();
-  }, { passive: true });
-
-  /* TOUCH DRAG (MOBİL) */
+  // TOUCH DRAG (mobil)
   const touch = renderer.getTouchCaptor ? renderer.getTouchCaptor() : null;
 
   if (touch) {
     touch.on("touchstart", (e) => {
       if (!e.touches || !e.touches.length) return;
-      const t = e.touches[0];
-      const n = renderer.getNodeAtPosition({ x: t.clientX, y: t.clientY });
+      const t0 = e.touches[0];
+      const n = renderer.getNodeAtPosition({ x: t0.clientX, y: t0.clientY });
       if (!n) return;
       if (isCore(n)) return;
 
@@ -649,11 +666,13 @@ async function main() {
       if (!state.dragging || !state.draggedNode) return;
       if (!e.touches || !e.touches.length) return;
 
-      const t = e.touches[0];
-      const p = renderer.viewportToGraph({ x: t.clientX, y: t.clientY });
+      const t0 = e.touches[0];
+      const p = renderer.viewportToGraph({ x: t0.clientX, y: t0.clientY });
 
       graph.setNodeAttribute(state.draggedNode, "x", p.x);
       graph.setNodeAttribute(state.draggedNode, "y", p.y);
+
+      updateConflictForNode(state.draggedNode);
 
       if (e.original) {
         e.original.preventDefault();
@@ -667,14 +686,23 @@ async function main() {
       if (!state.dragging || !state.draggedNode) return;
 
       const id = state.draggedNode;
-      const x = graph.getNodeAttribute(id, "x");
-      const y = graph.getNodeAttribute(id, "y");
 
-      pinnedNodes.add(id);
-      basePos.set(id, { x, y });
+      if (state.conflictCore) {
+        const b = basePos.get(id);
+        if (b) {
+          graph.setNodeAttribute(id, "x", b.x);
+          graph.setNodeAttribute(id, "y", b.y);
+        }
+      } else {
+        const x = graph.getNodeAttribute(id, "x");
+        const y = graph.getNodeAttribute(id, "y");
+        pinnedNodes.add(id);
+        basePos.set(id, { x, y });
+      }
 
       state.dragging = false;
       state.draggedNode = null;
+      state.conflictCore = null;
       renderer.getCamera().enable();
       refresh();
     };
@@ -682,6 +710,31 @@ async function main() {
     touch.on("touchup", endTouch);
     touch.on("touchcancel", endTouch);
   }
+
+  window.addEventListener("mouseup", () => {
+    if (!state.dragging || !state.draggedNode) return;
+
+    const id = state.draggedNode;
+
+    if (state.conflictCore) {
+      const b = basePos.get(id);
+      if (b) {
+        graph.setNodeAttribute(id, "x", b.x);
+        graph.setNodeAttribute(id, "y", b.y);
+      }
+    } else {
+      const x = graph.getNodeAttribute(id, "x");
+      const y = graph.getNodeAttribute(id, "y");
+      pinnedNodes.add(id);
+      basePos.set(id, { x, y });
+    }
+
+    state.dragging = false;
+    state.draggedNode = null;
+    state.conflictCore = null;
+    renderer.getCamera().enable();
+    refresh();
+  }, { passive: true });
 
   document.getElementById("search").addEventListener("input", (e) => {
     const q = e.target.value.trim().toLowerCase();
@@ -741,10 +794,13 @@ async function main() {
     { id: "core_ecology", label: "ECOLOGY" }
   ].filter(c => graph.hasNode(c.id));
 
-  const SYSTEM_R = 10.8;
+ const SYSTEM_R = 10.8;
   const CORE_RING_R = 7.3;
 
-  function applyLayoutA() {
+  // Alt nodelar için core çevresindeki maksimum yarıçap (graph space)
+  const CORE_CLUSTER_R = 3.0;
+
+    function applyLayoutA() {
     const n = CORES.length || 5;
 
     CORES.forEach((c, i) => {
@@ -781,11 +837,24 @@ async function main() {
       let x = px + nx * spread * side;
       let y = py + ny * spread * side;
 
+      // Önce büyük sistem çemberinin dışına taşmasın
       const rr = Math.hypot(x, y);
       if (rr > SYSTEM_R * 0.92) {
         const k = (SYSTEM_R * 0.92) / rr;
         x *= k;
         y *= k;
+      }
+
+      // Sonra kendi core merkezinin etrafında CORE_CLUSTER_R yarıçapına sıkıştır
+      let dx = x - cx;
+      let dy = y - cy;
+      const rLocal = Math.hypot(dx, dy);
+      if (rLocal > CORE_CLUSTER_R) {
+        const k2 = (CORE_CLUSTER_R * 0.92) / rLocal;
+        dx *= k2;
+        dy *= k2;
+        x = cx + dx;
+        y = cy + dy;
       }
 
       graph.setNodeAttribute(id, "x", x);
@@ -849,7 +918,7 @@ async function main() {
     const sysRpx = graphRadiusToPx({ x: 0, y: 0 }, SYSTEM_R);
 
     drawCircle(centerV.x, centerV.y, sysRpx, "rgba(0,0,0,0.34)", swMain, "rgba(0,0,0,0.00)");
-    drawText(centerV.x - sysRpx + 14, centerV.y - sysRpx + 22, "Future City", 12, 0.70);
+    drawText(centerV.x - sysRpx + 14, centerV.y - sysRpx + 22, "LIVING CITY DOMES", 12, 0.70);
 
     const humanRpx = graphRadiusToPx({ x: 0, y: 0 }, 0.95);
     drawCircle(centerV.x, centerV.y, humanRpx, "rgba(0,0,0,0.42)", Math.max(swCore, 1.2), "rgba(0,0,0,0.00)");
@@ -858,6 +927,7 @@ async function main() {
     const sizeHuman = Math.max(16, Math.min(28, 24 / ratio));
     drawIconPath(centerV.x, centerV.y, "human", sizeHuman, 0.92, "#000000");
 
+    // CORE → HUMAN OKLAR
     CORES.forEach(c => {
       const gx = graph.getNodeAttribute(c.id, "x");
       const gy = graph.getNodeAttribute(c.id, "y");
@@ -903,13 +973,22 @@ async function main() {
       overlay.appendChild(poly);
     });
 
+    // CORE HALO + ICONLAR (çarpışan core kırmızı tepki verir)
     CORES.forEach(c => {
       const x = graph.getNodeAttribute(c.id, "x");
       const y = graph.getNodeAttribute(c.id, "y");
       const p = renderer.graphToViewport({ x, y });
 
-      const rPx = graphRadiusToPx({ x, y }, 3.1);
-      drawCircle(p.x, p.y, rPx, "rgba(0,0,0,0.18)", swCore, "rgba(0,0,0,0.00)");
+      const isConflicted = (state.conflictCore === c.id);
+
+      const rPxBase = graphRadiusToPx({ x, y }, 3.1);
+      const rPx = isConflicted ? rPxBase * 0.9 : rPxBase;
+
+      const strokeColor = isConflicted
+        ? "rgba(200,0,0,0.70)"
+        : "rgba(0,0,0,0.18)";
+
+      drawCircle(p.x, p.y, rPx, strokeColor, swCore, "rgba(0,0,0,0.00)");
 
       const len = Math.hypot(x, y) || 1;
       const dirX = x / len;
@@ -919,7 +998,7 @@ async function main() {
       const ly = p.y + dirY * (rPx + 12);
 
       const anchor = dirX > 0.25 ? "start" : (dirX < -0.25 ? "end" : "middle");
-      drawText(lx, ly, c.label, 14, 0.85, anchor);
+      drawText(lx, ly, c.label, 14, isConflicted ? 0.95 : 0.85, anchor);
 
       const key =
         c.id === "core_energy" ? "energy" :
@@ -929,7 +1008,7 @@ async function main() {
         c.id === "core_ecology" ? "ecology" :
         null;
 
-      const sizeCore = Math.max(26, Math.min(46, 40 / ratio));
+      const sizeCore = Math.max(26, Math.min(46, (isConflicted ? 36 : 40) / ratio));
 
       const glow = svgEl("circle");
       glow.setAttribute("class", "pulse-halo");
@@ -940,8 +1019,8 @@ async function main() {
       glow.setAttribute("cx", String(p.x));
       glow.setAttribute("cy", String(p.y));
       glow.setAttribute("r", String(Math.max(18, sizeCore * 0.95)));
-      glow.setAttribute("fill", "rgba(0,0,0,0.06)");
-      glow.setAttribute("stroke", "rgba(0,0,0,0.08)");
+      glow.setAttribute("fill", isConflicted ? "rgba(200,0,0,0.10)" : "rgba(0,0,0,0.06)");
+      glow.setAttribute("stroke", isConflicted ? "rgba(200,0,0,0.45)" : "rgba(0,0,0,0.08)");
       glow.setAttribute("stroke-width", "1");
       overlay.appendChild(glow);
 
@@ -950,13 +1029,14 @@ async function main() {
       bg.setAttribute("cy", String(p.y));
       bg.setAttribute("r", String(Math.max(14, sizeCore * 0.65)));
       bg.setAttribute("fill", "rgba(255,255,255,0.97)");
-      bg.setAttribute("stroke", "rgba(0,0,0,0.35)");
+      bg.setAttribute("stroke", isConflicted ? "rgba(200,0,0,0.75)" : "rgba(0,0,0,0.35)");
       bg.setAttribute("stroke-width", "1.2");
       overlay.appendChild(bg);
 
       drawIconPath(p.x, p.y, key, sizeCore, 0.98, "#000000");
     });
 
+    // NON-CORE ICONS
     graph.forEachNode((id, a) => {
       if (String(id).startsWith("core_")) return;
 
@@ -1026,7 +1106,7 @@ async function main() {
 
       const a = document.createElement("a");
       a.href = out.toDataURL("image/png");
-      a.download = "Future City-map.png";
+      a.download = "living-city-domes-map.png";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1097,6 +1177,3 @@ main().catch(err => {
 </script>
 </body>
 </html>
-
-
-
