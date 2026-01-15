@@ -74,6 +74,16 @@
     { "id": "e24", "source": "core_ecology", "target": "ec_green" },
     { "id": "e25", "source": "core_ecology", "target": "ec_farm" },
     { "id": "e26", "source": "core_ecology", "target": "ec_climate" },
-    { "id": "e27", "source": "core_ecology", "target": "ec_ai" }
+    { "id": "e27", "source": "core_ecology", "target": "ec_ai" },
+
+    { "id": "e28", "source": "en_solar", "target": "core_ecology" },
+    { "id": "e29", "source": "en_wind", "target": "core_ecology" },
+
+    { "id": "e30", "source": "mo_ped", "target": "core_ecology" },
+    { "id": "e31", "source": "mo_micro", "target": "core_ecology" },
+
+    { "id": "e32", "source": "da_sensors", "target": "core_ecology" },
+
+    { "id": "e33", "source": "ec_ai", "target": "core_data" }
   ]
 }
